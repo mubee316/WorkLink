@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Clock, CheckCircle, XCircle, Loader, Send, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Clock, CheckCircle, XCircle, Loader, Send, Lock, Eye, EyeOff, ShieldCheck, AlertTriangle } from 'lucide-react';
 import AppLayout from '../components/layout/AppLayout';
 import { Button } from '../design';
 import { useAuth } from '../contexts/useAuth';
@@ -34,6 +34,11 @@ export default function JobDetails() {
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [showPin, setShowPin] = useState(false);
+  const [showDisputeForm, setShowDisputeForm] = useState(false);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [disputeDesc, setDisputeDesc] = useState('');
+  const [disputeError, setDisputeError] = useState('');
+  const [disputeSubmitted, setDisputeSubmitted] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -130,6 +135,23 @@ export default function JobDetails() {
       await load();
     } catch {
       setError('Failed to cancel job.');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const handleDispute = async () => {
+    if (!disputeReason) { setDisputeError('Please select a reason.'); return; }
+    if (disputeDesc.trim().length < 10) { setDisputeError('Please describe the issue (min 10 characters).'); return; }
+    setDisputeError('');
+    setActionLoading('dispute');
+    try {
+      await api.post(`/jobs/${id}/dispute`, { reason: disputeReason, description: disputeDesc.trim() });
+      setDisputeSubmitted(true);
+      setShowDisputeForm(false);
+      await load();
+    } catch (err) {
+      setDisputeError(err.response?.data?.error || 'Failed to submit dispute.');
     } finally {
       setActionLoading('');
     }
@@ -292,6 +314,68 @@ export default function JobDetails() {
                     </div>
                   </div>
                 )}
+                {job.status === 'ACTIVE' && isCustomer && (
+                  <div className="mt-2">
+                    {job.disputeRaised || disputeSubmitted ? (
+                      <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                        <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-600" />
+                        <p className="text-[13px] font-medium text-amber-700">Dispute submitted — our team will review and get back to you.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setShowDisputeForm((v) => !v)}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-[13px] font-semibold text-red-600 transition hover:bg-red-100"
+                        >
+                          <AlertTriangle className="h-4 w-4" />
+                          {showDisputeForm ? 'Cancel Dispute' : 'Make a Dispute'}
+                        </button>
+
+                        {showDisputeForm && (
+                          <div className="mt-3 space-y-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+                            <p className="text-[13px] font-semibold text-red-700">What is the issue?</p>
+
+                            <select
+                              value={disputeReason}
+                              onChange={(e) => { setDisputeReason(e.target.value); setDisputeError(''); }}
+                              className="w-full rounded-[10px] border border-red-200 bg-white px-3 py-2.5 text-[13px] text-[var(--color-text-strong)] focus:border-red-400 focus:outline-none"
+                            >
+                              <option value="">Select a reason…</option>
+                              <option value="Work not completed">Work not completed</option>
+                              <option value="Poor quality of work">Poor quality of work</option>
+                              <option value="Worker no-show">Worker no-show</option>
+                              <option value="Overcharged">Overcharged</option>
+                              <option value="Other">Other</option>
+                            </select>
+
+                            <textarea
+                              value={disputeDesc}
+                              onChange={(e) => { setDisputeDesc(e.target.value); setDisputeError(''); }}
+                              placeholder="Describe the problem in detail…"
+                              rows={3}
+                              className="w-full rounded-[10px] border border-red-200 bg-white px-3 py-2.5 text-[13px] text-[var(--color-text-strong)] placeholder:text-[var(--color-text-muted)] focus:border-red-400 focus:outline-none resize-none"
+                            />
+
+                            {disputeError && (
+                              <p className="text-[12px] font-medium text-red-600">{disputeError}</p>
+                            )}
+
+                            <Button
+                              fullWidth
+                              isLoading={actionLoading === 'dispute'}
+                              onClick={handleDispute}
+                              className="!bg-red-600 hover:!bg-red-700"
+                            >
+                              Submit Dispute
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {job.status === 'PENDING' && (
                   <Button
                     fullWidth

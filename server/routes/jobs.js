@@ -250,6 +250,57 @@ router.patch('/:id/complete', verifyToken, async (req, res) => {
   }
 });
 
+// ─── POST /jobs/:id/dispute ───────────────────────────────────────────────────
+// Customer raises a dispute on an ACTIVE job
+router.post('/:id/dispute', verifyToken, async (req, res) => {
+  try {
+    const doc = await db.collection('jobs').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Job not found' });
+
+    const job = doc.data();
+
+    if (job.customerId !== req.user.uid) {
+      return res.status(403).json({ error: 'Only the customer can raise a dispute' });
+    }
+    if (job.status !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Disputes can only be raised on active jobs' });
+    }
+    if (job.disputeRaised) {
+      return res.status(400).json({ error: 'A dispute has already been raised for this job' });
+    }
+
+    const { reason, description } = req.body;
+    if (!reason || !description) {
+      return res.status(400).json({ error: 'Reason and description are required' });
+    }
+
+    const disputeRef = db.collection('disputes').doc();
+    const dispute = {
+      id: disputeRef.id,
+      jobId: req.params.id,
+      customerId: job.customerId,
+      customerName: job.customerName,
+      workerId: job.workerId,
+      workerName: job.workerName,
+      reason,
+      description,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+    };
+
+    await disputeRef.set(dispute);
+    await db.collection('jobs').doc(req.params.id).update({
+      disputeRaised: true,
+      disputeId: disputeRef.id,
+    });
+
+    res.json({ success: true, disputeId: disputeRef.id });
+  } catch (err) {
+    console.error('Dispute error:', err.message);
+    res.status(500).json({ error: 'Failed to raise dispute' });
+  }
+});
+
 // ─── PATCH /jobs/:id/cancel ───────────────────────────────────────────────────
 // Cancel a PENDING job (customer or worker)
 router.patch('/:id/cancel', verifyToken, async (req, res) => {
