@@ -2,6 +2,7 @@ const express = require('express');
 const verifyToken = require('../middleware/verifyToken');
 const { db } = require('../firebase-admin');
 const { transferFunds } = require('../services/interswitchTransfer');
+const { sendDisputeOpenedEmail, sendDisputeResolvedEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -295,9 +296,106 @@ router.post('/:id/dispute', verifyToken, async (req, res) => {
     });
 
     res.json({ success: true, disputeId: disputeRef.id });
+
+    // Send emails non-blocking
+    ;(async () => {
+      try {
+        const [customerDoc, workerDoc] = await Promise.all([
+          db.collection('users').doc(job.customerId).get(),
+          db.collection('users').doc(job.workerId).get(),
+        ]);
+        await sendDisputeOpenedEmail({
+          customerEmail: customerDoc.data()?.email,
+          customerName: job.customerName,
+          workerEmail: workerDoc.data()?.email,
+          workerName: job.workerName,
+          jobDescription: job.description,
+          reason,
+          disputeId: disputeRef.id,
+        });
+      } catch (e) {
+        console.error('[Dispute email] Failed to send:', e.message);
+      }
+    })();
   } catch (err) {
     console.error('Dispute error:', err.message);
     res.status(500).json({ error: 'Failed to raise dispute' });
+  }
+});
+
+// ─── PATCH /jobs/:id/dispute/resolve ──────────────────────────────────────────
+// Admin resolves a dispute — release to worker or refund to customer
+router.patch('/:id/dispute/resolve', verifyToken, async (req, res) => {
+  try {
+    const { resolution } = req.body; // 'release' | 'refund'
+    if (!['release', 'refund'].includes(resolution)) {
+      return res.status(400).json({ error: 'resolution must be "release" or "refund"' });
+    }
+
+    // Admin only
+    const adminDoc = await db.collection('users').doc(req.user.uid).get();
+    if (adminDoc.data()?.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const jobDoc = await db.collection('jobs').doc(req.params.id).get();
+    if (!jobDoc.exists) return res.status(404).json({ error: 'Job not found' });
+    const job = jobDoc.data();
+
+    if (!job.disputeRaised) return res.status(400).json({ error: 'No dispute on this job' });
+
+    const now = new Date().toISOString();
+
+    // Update dispute record
+    if (job.disputeId) {
+      await db.collection('disputes').doc(job.disputeId).update({ status: 'resolved', resolution, resolvedAt: now });
+    }
+
+    if (resolution === 'release') {
+      // Release payment to worker — same as marking complete
+      await db.collection('jobs').doc(req.params.id).update({
+        status: 'COMPLETED', completedAt: now, payoutStatus: 'pending', disputeRaised: false,
+      });
+      const paymentSnap = await db.collection('payments').where('jobId', '==', req.params.id).limit(1).get();
+      if (!paymentSnap.empty) {
+        await paymentSnap.docs[0].ref.update({ status: 'RELEASED', releasedAt: now });
+      }
+    } else {
+      // Refund — mark payment as refunded, cancel job
+      await db.collection('jobs').doc(req.params.id).update({
+        status: 'CANCELLED', disputeRaised: false,
+      });
+      const paymentSnap = await db.collection('payments').where('jobId', '==', req.params.id).limit(1).get();
+      if (!paymentSnap.empty) {
+        await paymentSnap.docs[0].ref.update({ status: 'REFUNDED', refundedAt: now });
+      }
+    }
+
+    res.json({ success: true, resolution });
+
+    // Send resolution emails non-blocking
+    ;(async () => {
+      try {
+        const [customerDoc, workerDoc] = await Promise.all([
+          db.collection('users').doc(job.customerId).get(),
+          db.collection('users').doc(job.workerId).get(),
+        ]);
+        await sendDisputeResolvedEmail({
+          customerEmail: customerDoc.data()?.email,
+          customerName: job.customerName,
+          workerEmail: workerDoc.data()?.email,
+          workerName: job.workerName,
+          jobDescription: job.description,
+          resolution,
+          disputeId: job.disputeId || req.params.id,
+        });
+      } catch (e) {
+        console.error('[Resolution email] Failed to send:', e.message);
+      }
+    })();
+  } catch (err) {
+    console.error('Resolve dispute error:', err.message);
+    res.status(500).json({ error: 'Failed to resolve dispute' });
   }
 });
 

@@ -21,6 +21,7 @@ import WorkerReviewsPage from './pages/WorkerReviewsPage';
 import NinVerification from './pages/NinVerification';
 import WorkerSetupPage from './pages/WorkerSetupPage';
 import LandingPage from './pages/LandingPage';
+import AdminPage from './pages/AdminPage';
 
 export default function App() {
   return (
@@ -50,6 +51,8 @@ export default function App() {
           <Route path="/payments" element={<ProtectedRoute><PaymentsPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/reviews" element={<ProtectedRoute><WorkerReviewsPage /></ProtectedRoute>} />
+
+          <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
 
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />
