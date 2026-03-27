@@ -17,6 +17,11 @@ router.post('/verify-account', verifyToken, async (req, res) => {
     return res.status(400).json({ error: 'Account number must be exactly 10 digits' });
   }
 
+  if (process.env.DEMO_BANK_VERIFY === 'true') {
+    console.log(`[verifyAccount] DEMO mode — simulating success for ${bankCode}/${accountNumber}`);
+    return res.json({ success: true, accountName: 'DEMO ACCOUNT HOLDER' });
+  }
+
   try {
     const result = await verifyAccount(bankCode, accountNumber);
 
@@ -27,7 +32,6 @@ router.post('/verify-account', verifyToken, async (req, res) => {
       return res.json({ success: true, accountName: name });
     }
 
-    // Non-200 response shape — surface the raw response for debugging
     res.json({
       success: false,
       error: 'Account not found or could not be verified',
