@@ -180,9 +180,20 @@ function DisputeCard({ dispute, isExpanded, onToggle, onResolve, resolving, read
             </div>
           </div>
 
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Description</p>
+          {/* Customer complaint */}
+          <div className="rounded-xl border border-red-100 bg-red-50 p-3 space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-red-500">Customer's Complaint</p>
             <p className="text-[13px] text-[var(--color-text-body)] leading-relaxed">{dispute.description}</p>
+          </div>
+
+          {/* Worker response */}
+          <div className={`rounded-xl border p-3 space-y-2 ${dispute.workerResponse ? 'border-[var(--color-brand-200)] bg-[var(--color-brand-50)]' : 'border-[var(--color-border-subtle)] bg-[var(--color-surface-canvas)]'}`}>
+            <p className={`text-[11px] font-semibold uppercase tracking-wider ${dispute.workerResponse ? 'text-[var(--color-brand-600)]' : 'text-[var(--color-text-muted)]'}`}>
+              Worker's Response
+            </p>
+            <p className="text-[13px] text-[var(--color-text-body)] leading-relaxed">
+              {dispute.workerResponse || 'No response submitted yet.'}
+            </p>
           </div>
 
           {!readOnly && (

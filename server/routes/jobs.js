@@ -251,6 +251,29 @@ router.patch('/:id/complete', verifyToken, async (req, res) => {
   }
 });
 
+// ─── GET /jobs/:id/dispute ────────────────────────────────────────────────────
+// Get dispute details for a job
+router.get('/:id/dispute', verifyToken, async (req, res) => {
+  try {
+    const doc = await db.collection('jobs').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Job not found' });
+    const job = doc.data();
+
+    if (job.customerId !== req.user.uid && job.workerId !== req.user.uid) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (!job.disputeId) return res.status(404).json({ error: 'No dispute found' });
+
+    const disputeDoc = await db.collection('disputes').doc(job.disputeId).get();
+    if (!disputeDoc.exists) return res.status(404).json({ error: 'Dispute not found' });
+
+    res.json({ dispute: { id: disputeDoc.id, ...disputeDoc.data() } });
+  } catch (err) {
+    console.error('Get dispute error:', err.message);
+    res.status(500).json({ error: 'Failed to get dispute' });
+  }
+});
+
 // ─── POST /jobs/:id/dispute ───────────────────────────────────────────────────
 // Customer raises a dispute on an ACTIVE job
 router.post('/:id/dispute', verifyToken, async (req, res) => {
@@ -320,6 +343,41 @@ router.post('/:id/dispute', verifyToken, async (req, res) => {
   } catch (err) {
     console.error('Dispute error:', err.message);
     res.status(500).json({ error: 'Failed to raise dispute' });
+  }
+});
+
+// ─── POST /jobs/:id/dispute/respond ───────────────────────────────────────────
+// Worker submits their response to a dispute
+router.post('/:id/dispute/respond', verifyToken, async (req, res) => {
+  try {
+    const doc = await db.collection('jobs').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Job not found' });
+
+    const job = doc.data();
+
+    if (job.workerId !== req.user.uid) {
+      return res.status(403).json({ error: 'Only the worker can respond to a dispute' });
+    }
+    if (!job.disputeRaised) {
+      return res.status(400).json({ error: 'No dispute has been raised on this job' });
+    }
+
+    const { response } = req.body;
+    if (!response || response.trim().length < 10) {
+      return res.status(400).json({ error: 'Response must be at least 10 characters' });
+    }
+
+    if (job.disputeId) {
+      await db.collection('disputes').doc(job.disputeId).update({
+        workerResponse: response.trim(),
+        workerRespondedAt: new Date().toISOString(),
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Dispute respond error:', err.message);
+    res.status(500).json({ error: 'Failed to submit response' });
   }
 });
 

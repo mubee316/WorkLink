@@ -40,6 +40,10 @@ export default function JobDetails() {
   const [disputeDesc, setDisputeDesc] = useState('');
   const [disputeError, setDisputeError] = useState('');
   const [disputeSubmitted, setDisputeSubmitted] = useState(false);
+  const [dispute, setDispute] = useState(null);
+  const [workerResponse, setWorkerResponse] = useState('');
+  const [workerResponseError, setWorkerResponseError] = useState('');
+  const [workerResponseSubmitted, setWorkerResponseSubmitted] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -47,6 +51,13 @@ export default function JobDetails() {
       const { data } = await api.get(`/jobs/${id}`);
       setJob(data.job);
       setPayment(data.payment);
+      if (data.job?.disputeId) {
+        try {
+          const { data: dData } = await api.get(`/jobs/${id}/dispute`);
+          setDispute(dData.dispute);
+          if (dData.dispute?.workerResponse) setWorkerResponseSubmitted(true);
+        } catch { /* non-critical */ }
+      }
     } catch {
       setError('Could not load job details.');
     } finally {
@@ -158,6 +169,21 @@ export default function JobDetails() {
     }
   };
 
+  const handleWorkerResponse = async () => {
+    if (workerResponse.trim().length < 10) { setWorkerResponseError('Please provide more detail (min 10 characters).'); return; }
+    setWorkerResponseError('');
+    setActionLoading('workerResponse');
+    try {
+      await api.post(`/jobs/${id}/dispute/respond`, { response: workerResponse.trim() });
+      setWorkerResponseSubmitted(true);
+      await load();
+    } catch (err) {
+      setWorkerResponseError(err.response?.data?.error || 'Failed to submit response.');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
     const isCustomer = userProfile?.uid === job?.customerId;
 
   return (
@@ -247,14 +273,62 @@ export default function JobDetails() {
               {/* Actions */}
               <div className="space-y-2 pt-1">
 
-                {/* Worker — dispute notice */}
+                {/* Worker — dispute section */}
                 {job.status === 'ACTIVE' && !isCustomer && job.disputeRaised && (
-                  <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-                    <AlertTriangle className="h-4 w-4 flex-shrink-0 text-red-500 mt-0.5" />
-                    <div>
-                      <p className="text-[13px] font-semibold text-red-700">Dispute raised by customer</p>
-                      <p className="text-[12px] text-red-600 mt-0.5">Payment is on hold pending review. Our team will contact both parties.</p>
+                  <div className="space-y-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+                    {/* Header */}
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="h-4 w-4 flex-shrink-0 text-red-500 mt-0.5" />
+                      <div>
+                        <p className="text-[13px] font-semibold text-red-700">Dispute raised by customer</p>
+                        <p className="text-[12px] text-red-600 mt-0.5">Payment is on hold pending review.</p>
+                      </div>
                     </div>
+
+                    {/* Customer's complaint */}
+                    {dispute && (
+                      <div className="rounded-xl border border-red-200 bg-white p-3 space-y-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-500">Customer's Complaint</p>
+                        <div className="flex gap-2 text-[13px]">
+                          <span className="text-[var(--color-text-muted)] w-16 flex-shrink-0">Reason</span>
+                          <span className="font-medium text-[var(--color-text-strong)]">{dispute.reason}</span>
+                        </div>
+                        <div className="flex gap-2 text-[13px]">
+                          <span className="text-[var(--color-text-muted)] w-16 flex-shrink-0">Details</span>
+                          <span className="text-[var(--color-text-body)] leading-relaxed">{dispute.description}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Worker response */}
+                    {workerResponseSubmitted || dispute?.workerResponse ? (
+                      <div className="rounded-xl border border-red-200 bg-white p-3 space-y-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-brand-600)]">Your Response</p>
+                        <p className="text-[13px] text-[var(--color-text-body)] leading-relaxed">{dispute?.workerResponse || workerResponse}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-[13px] font-semibold text-red-700">Submit your response</p>
+                        <textarea
+                          value={workerResponse}
+                          onChange={(e) => { setWorkerResponse(e.target.value); setWorkerResponseError(''); }}
+                          placeholder="Explain your side of the situation in detail…"
+                          rows={3}
+                          className="w-full rounded-[10px] border border-red-200 bg-white px-3 py-2.5 text-[13px] text-[var(--color-text-strong)] placeholder:text-[var(--color-text-muted)] focus:border-red-400 focus:outline-none resize-none"
+                        />
+                        {workerResponseError && (
+                          <p className="text-[12px] font-medium text-red-600">{workerResponseError}</p>
+                        )}
+                        <button
+                          type="button"
+                          disabled={actionLoading === 'workerResponse'}
+                          onClick={handleWorkerResponse}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {actionLoading === 'workerResponse' ? 'Submitting…' : 'Submit Response'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
