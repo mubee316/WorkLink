@@ -31,7 +31,7 @@ export default function NinVerification() {
     try {
       await api.post('/workers/verify-nin', { nin });
       setSuccess(true);
-      setTimeout(() => navigate('/worker-setup'), 1500);
+      setTimeout(() => navigate('/dashboard'), 1500);
     } catch (err) {
       setError(err.response?.data?.error || 'NIN verification failed. Check your NIN and try again.');
     } finally {
