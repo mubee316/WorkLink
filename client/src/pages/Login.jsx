@@ -17,11 +17,15 @@ function WorkLinkMark() {
 }
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, resetPassword } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [serverError, setServerError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetStatus, setResetStatus] = useState(''); // 'sent' | 'error' | ''
+  const [resetLoading, setResetLoading] = useState(false);
 
   const redirectTo = location.state?.from?.pathname || '/dashboard';
 
@@ -38,6 +42,20 @@ export default function Login() {
       navigate(redirectTo, { replace: true });
     } catch {
       setServerError('Invalid email or password. Please try again.');
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetEmail || resetLoading) return;
+    setResetLoading(true);
+    setResetStatus('');
+    try {
+      await resetPassword(resetEmail);
+      setResetStatus('sent');
+    } catch {
+      setResetStatus('error');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -134,13 +152,47 @@ export default function Login() {
             </div>
 
             <div className="flex justify-end">
-              <a
-                href="#"
+              <button
+                type="button"
+                onClick={() => setForgotMode((v) => !v)}
                 className="text-[13px] font-semibold text-[var(--color-brand-500)] transition hover:text-[var(--color-brand-600)]"
               >
                 Forgot password?
-              </a>
+              </button>
             </div>
+
+            {forgotMode && (
+              <div className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-surface-canvas)] p-4 space-y-3">
+                <p className="text-[13px] text-[var(--color-text-body)]">
+                  Enter your email and we'll send you a reset link.
+                </p>
+                <input
+                  type="email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="Your email address"
+                  className="w-full min-h-10 rounded-[10px] border border-[var(--color-border-subtle)] bg-white px-4 py-2 text-[14px] text-[var(--color-text-strong)] placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-border-focus)] focus:outline-none focus:ring-4 focus:ring-[rgba(55,166,83,0.12)]"
+                />
+                {resetStatus === 'sent' && (
+                  <p className="text-[13px] font-medium text-[var(--color-brand-600)]">
+                    Reset link sent! Check your inbox.
+                  </p>
+                )}
+                {resetStatus === 'error' && (
+                  <p className="text-[13px] font-medium text-[var(--color-error)]">
+                    Could not send reset email. Check the address and try again.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleResetPassword}
+                  disabled={!resetEmail || resetLoading}
+                  className="w-full rounded-xl bg-[var(--color-brand-500)] py-2.5 text-[13px] font-semibold text-white transition hover:bg-[var(--color-brand-600)] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {resetLoading ? 'Sending…' : 'Send reset link'}
+                </button>
+              </div>
+            )}
 
             <Button
               type="submit"

@@ -8,6 +8,76 @@ const router = express.Router();
 
 const COMMISSION_RATE = 0.12; // 12%
 
+// ─── Shared payout helper ──────────────────────────────────────────────────────
+// Runs async (non-blocking). Call after responding to client.
+async function runPayout(jobId, job) {
+  try {
+    const workerDoc = await db.collection('users').doc(job.workerId).get();
+    const worker = workerDoc.data();
+
+    if (!worker?.bankAccountNumber || !worker?.bankCode) {
+      await db.collection('jobs').doc(jobId).update({ payoutStatus: 'no_bank_account' });
+      console.warn(`Payout skipped for job ${jobId}: worker has no bank account on file`);
+      return;
+    }
+
+    const amountKobo = Math.round(job.workerPayout * 100);
+    const demoMode = process.env.DEMO_PAYMENTS === 'true' || process.env.DEMO_PAYOUT === 'true';
+
+    let transactionRef;
+
+    if (demoMode) {
+      // ── Demo mode: simulate successful payout ────────────────────────────────
+      transactionRef = `DEMO-${Date.now()}-${jobId.slice(-6)}`;
+      console.log(`[Payout] DEMO mode — simulating success for job ${jobId}, amount: ₦${job.workerPayout}`);
+    } else {
+      // ── Live mode: call Interswitch Transfer API ──────────────────────────────
+      const result = await transferFunds({
+        amountKobo,
+        accountNumber: worker.bankAccountNumber,
+        bankCode: worker.bankCode,
+        workerName: worker.name || job.workerName,
+        jobId,
+      });
+
+      if (
+        result.ResponseCodeGrouping !== 'SUCCESSFUL' &&
+        result.ResponseCode !== '90000'
+      ) {
+        await db.collection('jobs').doc(jobId).update({ payoutStatus: 'failed' });
+        console.error(`Payout failed for job ${jobId} — ResponseCode: ${result.ResponseCode}`);
+        return;
+      }
+
+      transactionRef = result.TransactionReference || result.transferCode;
+      console.log(`Payout completed for job ${jobId} — ref: ${transactionRef}`);
+    }
+
+    const payoutRef = db.collection('payouts').doc();
+    await payoutRef.set({
+      id: payoutRef.id,
+      jobId,
+      workerId: job.workerId,
+      totalAmount: job.totalAmount,
+      commission: job.commission,
+      workerPayout: job.workerPayout,
+      amountKobo,
+      transactionReference: transactionRef,
+      status: 'completed',
+      demo: demoMode,
+      createdAt: new Date().toISOString(),
+    });
+
+    await db.collection('jobs').doc(jobId).update({
+      payoutStatus: 'completed',
+      payoutReference: transactionRef,
+    });
+  } catch (err) {
+    await db.collection('jobs').doc(jobId).update({ payoutStatus: 'failed' }).catch(() => {});
+    console.error(`Payout error for job ${jobId}:`, err.message);
+  }
+}
+
 // ─── POST /jobs ───────────────────────────────────────────────────────────────
 // Customer creates a job booking
 router.post('/', verifyToken, async (req, res) => {
@@ -177,74 +247,7 @@ router.patch('/:id/complete', verifyToken, async (req, res) => {
     res.json({ success: true, status: 'COMPLETED' });
 
     // ── Non-blocking payout ──────────────────────────────────────────────────
-    ;(async () => {
-      const jobId = req.params.id;
-      try {
-        const workerDoc = await db.collection('users').doc(job.workerId).get();
-        const worker = workerDoc.data();
-
-        if (!worker?.bankAccountNumber || !worker?.bankCode) {
-          await db.collection('jobs').doc(jobId).update({ payoutStatus: 'no_bank_account' });
-          console.warn(`Payout skipped for job ${jobId}: worker has no bank account on file`);
-          return;
-        }
-
-        const amountKobo = Math.round(job.workerPayout * 100);
-        const demoMode = process.env.DEMO_PAYMENTS === 'true';
-
-        let payoutRef_val, transactionRef;
-
-        if (demoMode) {
-          // ── Demo mode: simulate successful payout ──────────────────────────
-          transactionRef = `DEMO-${Date.now()}-${jobId.slice(-6)}`;
-          console.log(`[Payout] DEMO mode — simulating success for job ${jobId}`);
-        } else {
-          // ── Live mode: call Interswitch Transfer API ───────────────────────
-          const result = await transferFunds({
-            amountKobo,
-            accountNumber: worker.bankAccountNumber,
-            bankCode: worker.bankCode,
-            workerName: worker.name || job.workerName,
-            jobId,
-          });
-
-          if (
-            result.ResponseCodeGrouping !== 'SUCCESSFUL' &&
-            result.ResponseCode !== '90000'
-          ) {
-            await db.collection('jobs').doc(jobId).update({ payoutStatus: 'failed' });
-            console.error(`Payout failed for job ${jobId} — ResponseCode: ${result.ResponseCode}`);
-            return;
-          }
-
-          transactionRef = result.TransactionReference || result.transferCode;
-          console.log(`Payout completed for job ${jobId} — ref: ${transactionRef}`);
-        }
-
-        const payoutRef = db.collection('payouts').doc();
-        await payoutRef.set({
-          id: payoutRef.id,
-          jobId,
-          workerId: job.workerId,
-          totalAmount: job.totalAmount,
-          commission: job.commission,
-          workerPayout: job.workerPayout,
-          amountKobo,
-          transactionReference: transactionRef,
-          status: 'completed',
-          demo: demoMode,
-          createdAt: new Date().toISOString(),
-        });
-
-        await db.collection('jobs').doc(jobId).update({
-          payoutStatus: 'completed',
-          payoutReference: transactionRef,
-        });
-      } catch (err) {
-        await db.collection('jobs').doc(jobId).update({ payoutStatus: 'failed' }).catch(() => {});
-        console.error(`Payout error for job ${jobId}:`, err.message);
-      }
-    })();
+    runPayout(req.params.id, job);
   } catch (err) {
     console.error('Complete job error:', err.message);
     res.status(500).json({ error: 'Failed to complete job' });
@@ -430,6 +433,11 @@ router.patch('/:id/dispute/resolve', verifyToken, async (req, res) => {
     }
 
     res.json({ success: true, resolution });
+
+    // Trigger payout non-blocking if admin released to worker
+    if (resolution === 'release') {
+      runPayout(req.params.id, job);
+    }
 
     // Send resolution emails non-blocking
     ;(async () => {

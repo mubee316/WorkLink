@@ -72,7 +72,7 @@ export default function JobDetails() {
     setError('');
 
     const amountKobo = job.totalAmount * 100;
-    const txnRef = `WORKLINK_${Date.now()}_${id}`;
+    const txnRef = `WL${Date.now().toString(36).toUpperCase()}${id.slice(-6).toUpperCase()}`;
 
     try {
       const { data } = await api.post('/payments/initiate', {
@@ -387,6 +387,11 @@ export default function JobDetails() {
                         <p className="text-center text-[11px] text-[var(--color-brand-600)]">
                           Share this PIN with the worker only when you are fully satisfied
                         </p>
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                          <p className="text-[11px] leading-relaxed text-amber-800">
+                            <span className="font-semibold">Disclaimer:</span> By sharing this PIN you authorise the release of funds. If you share it before the job is fully completed, WorkLink will not be liable for the released payment. Use <span className="font-semibold">Report a Problem</span> below to freeze payment if you have any concerns.
+                          </p>
+                        </div>
                         <div className="border-t border-[var(--color-brand-200)] pt-3">
                           <p className="mb-2 text-[13px] font-semibold text-[var(--color-text-body)]">
                             Enter PIN to confirm release
@@ -502,6 +507,49 @@ export default function JobDetails() {
                 )}
               </div>
             </div>
+
+            {/* Payout status — visible to worker on completed jobs */}
+            {!isCustomer && job.status === 'COMPLETED' && (
+              <div className={`rounded-2xl border px-5 py-4 text-[13px] space-y-1 ${
+                job.payoutStatus === 'completed'
+                  ? 'border-[var(--color-brand-200)] bg-[var(--color-brand-50)]'
+                  : job.payoutStatus === 'failed'
+                  ? 'border-red-200 bg-red-50'
+                  : 'border-[var(--color-border-subtle)] bg-white'
+              }`}>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-2">Your Payout</p>
+                {job.payoutStatus !== 'completed' && (
+                  <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                    <p className="text-[11px] leading-relaxed text-amber-800">
+                      <span className="font-semibold">Disclaimer:</span> Payment is only released when the customer confirms job completion. Ensure all agreed work is fully done before requesting the PIN. Disputes or incomplete work may result in a withheld payout.
+                    </p>
+                  </div>
+                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--color-text-muted)]">Amount</span>
+                  <span className="font-semibold text-[var(--color-text-strong)]">₦{job.workerPayout?.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[var(--color-text-muted)]">Status</span>
+                  <span className={`font-semibold ${
+                    job.payoutStatus === 'completed' ? 'text-[var(--color-brand-600)]'
+                    : job.payoutStatus === 'failed' ? 'text-red-600'
+                    : 'text-amber-600'
+                  }`}>
+                    {job.payoutStatus === 'completed' ? 'Paid out'
+                      : job.payoutStatus === 'failed' ? 'Failed — contact support'
+                      : job.payoutStatus === 'no_bank_account' ? 'No bank account on file'
+                      : 'Processing…'}
+                  </span>
+                </div>
+                {job.payoutReference && (
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="text-[var(--color-text-muted)]">Reference</span>
+                    <span className="font-mono text-[11px] text-[var(--color-text-body)]">{job.payoutReference}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Dates */}
             <div className="rounded-2xl border border-[var(--color-border-subtle)] bg-white px-6 py-4 text-[13px] space-y-2">
